@@ -1,19 +1,17 @@
 import express from "express";
 import cors from "cors";
-import helmet from "helmet";
+
+import attendanceRoutes from "./routes/attendance.routes";
 
 const app = express();
 
 app.use(cors());
-app.use(helmet());
 app.use(express.json());
 
-app.get("/", (_req, res) => {
-  res.status(200).json({
-    success: true,
-    service: "Secure Offline Face Auth Backend",
-    version: "1.0.0"
-  });
+app.get("/", (req, res) => {
+  res.send("Backend Running Successfully");
 });
+
+app.use("/api/attendance", attendanceRoutes);
 
 export default app;
