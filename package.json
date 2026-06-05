@@ -52,26 +52,39 @@
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.1.2",
-    "@shopify/react-native-skia": "1.5.0",
+    "@react-navigation/native": "^7.2.5",
+    "@react-navigation/native-stack": "^7.16.0",
+    "@shopify/react-native-skia": "2.6.4",
     "@tensorflow/tfjs": "^4.22.0",
     "@tensorflow/tfjs-react-native": "^1.0.0",
-    "expo": "~53.0.20",
+    "expo": "~53.0.27",
+    "expo-application": "~6.1.5",
     "expo-asset": "~11.1.7",
+    "expo-build-properties": "~0.14.8",
     "expo-camera": "~16.1.11",
+    "expo-clipboard": "~7.1.5",
+    "expo-crypto": "~14.1.4",
     "expo-dev-client": "~5.2.4",
+    "expo-device": "~7.1.4",
+    "expo-file-system": "~18.1.10",
     "expo-gl": "~15.1.7",
     "expo-image-manipulator": "~13.1.7",
     "expo-image-picker": "^16.1.4",
+    "expo-location": "~18.1.5",
+    "expo-network": "~7.1.4",
+    "expo-secure-store": "~14.2.3",
+    "expo-sqlite": "~15.2.3",
     "expo-status-bar": "~2.2.3",
     "onnxruntime-react-native": "^1.22.0",
     "react": ">=18.0.0",
     "react-native": ">=0.70.0",
     "react-native-fs": "^2.20.0",
     "react-native-reanimated": "~3.17.4",
+    "react-native-safe-area-context": "5.4.0",
+    "react-native-screens": "~4.11.1",
     "react-native-vision-camera": "4.6.4",
     "react-native-vision-camera-face-detector": "1.7.2",
-    "react-native-worklets-core": "^1.6.0",
-    "expo-clipboard": "~7.1.5"
+    "react-native-worklets-core": "^1.6.0"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
@@ -92,5 +105,18 @@
   "private": false,
   "publishConfig": {
     "access": "public"
+  },
+  "expo": {
+    "install": {
+      "exclude": [
+        "@shopify/react-native-skia"
+      ]
+    },
+    "doctor": {
+      "reactNativeDirectoryCheck": {
+        "listUnknownPackages": false,
+        "exclude": ["react-native-fs"]
+      }
+    }
   }
 }

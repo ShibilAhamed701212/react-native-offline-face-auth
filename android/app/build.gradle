@@ -90,7 +90,7 @@ android {
     namespace 'com.maateusx.facerecognition'
     defaultConfig {
         applicationId 'com.maateusx.facerecognition'
-        minSdkVersion rootProject.ext.minSdkVersion
+        minSdkVersion 26
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
         versionName "1.0.0"

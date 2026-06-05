@@ -1,164 +1,89 @@
-// App.tsx - Main navigation component
-import React, { useState } from 'react';
-import { SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { RegisteredFace } from '../services/faceStorage';
-import CameraScreen from './camera';
-import FaceRegistrationScreen from './face-registration';
-import FaceSelectionScreen from './face-selection';
-import FaceVerificationScreen from './face-verification';
+import React, { useEffect } from 'react';
+import { StatusBar } from 'react-native';
+import { NavigationContainer } from '@react-navigation/native';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { AuthProvider, useAuth } from '../context/AuthContext';
+import { secureStorage } from '../storage/secureStorage';
+import { syncQueueService } from '../sync/syncQueueService';
+import { securityService } from '../security/securityService';
+import { getDatabase } from '../storage/database';
 
-type Screen = 'home' | 'camera' | 'register' | 'face-selection' | 'face-verification';
+import UserListScreen from './UserListScreen';
+import LoginScreen from './LoginScreen';
+import DashboardScreen from './DashboardScreen';
+import FirstTimeRegisterScreen from './FirstTimeRegisterScreen';
+import ReRegisterScreen from './ReRegisterScreen';
+import AttendanceScreen from './attendance-screen';
+import AttendanceHistoryScreen from './AttendanceHistoryScreen';
 
-export default function App() {
-  const [currentScreen, setCurrentScreen] = useState<Screen>('home');
-  const [selectedFace, setSelectedFace] = useState<RegisteredFace | null>(null);
-  const [faceListRefreshTrigger, setFaceListRefreshTrigger] = useState(0);
+const AuthStack = createNativeStackNavigator();
+const AppStack = createNativeStackNavigator();
 
-  const renderScreen = () => {
-    switch (currentScreen) {
-      case 'camera':
-        return <CameraScreen onBack={() => setCurrentScreen('home')} />;
-      case 'register':
-        return (
-          <FaceRegistrationScreen
-            onBack={() => {
-              setFaceListRefreshTrigger((prev) => prev + 1); // Trigger refresh
-              setCurrentScreen('home');
-            }}
-          />
-        );
-      case 'face-selection':
-        return (
-          <FaceSelectionScreen
-            onBack={() => setCurrentScreen('home')}
-            onFaceSelected={(face) => {
-              setSelectedFace(face);
-              setCurrentScreen('face-verification');
-            }}
-            refreshTrigger={faceListRefreshTrigger}
-          />
-        );
-      case 'face-verification':
-        return selectedFace ? (
-          <FaceVerificationScreen
-            onBack={() => {
-              setSelectedFace(null);
-              setCurrentScreen('face-selection');
-            }}
-            selectedFace={selectedFace}
-          />
-        ) : (
-          <HomeScreen onNavigate={setCurrentScreen} />
-        );
-      default:
-        return <HomeScreen onNavigate={setCurrentScreen} />;
-    }
-  };
-
-  return <SafeAreaView style={styles.container}>{renderScreen()}</SafeAreaView>;
-}
-
-function HomeScreen({ onNavigate }: { onNavigate: (screen: Screen) => void }) {
+function AuthNavigator() {
   return (
-    <View style={styles.homeContainer}>
-      <Text style={styles.title}>Facial Recognition App</Text>
-      <Text style={styles.subtitle}>Choose an option to get started</Text>
-
-      <View style={styles.buttonContainer}>
-        <TouchableOpacity style={styles.button} onPress={() => onNavigate('camera')}>
-          <Text style={styles.buttonText}>📷 Open Camera</Text>
-          <Text style={styles.buttonSubtext}>Scan and recognize faces</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={[styles.button, styles.registerButton]} onPress={() => onNavigate('register')}>
-          <Text style={styles.buttonText}>👤 Register Face</Text>
-          <Text style={styles.buttonSubtext}>Enroll a new face for recognition</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={[styles.button, styles.verifyButton]} onPress={() => onNavigate('face-selection')}>
-          <Text style={styles.buttonText}>🔐 Verify Face</Text>
-          <Text style={styles.buttonSubtext}>Select and verify against registered faces</Text>
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.infoContainer}>
-        <Text style={styles.infoText}>
-          This app uses ArcFace ONNX model for accurate face recognition and embedding generation.
-        </Text>
-      </View>
-    </View>
+    <AuthStack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#000' } }}>
+      <AuthStack.Screen name="UserList" component={UserListScreen} />
+      <AuthStack.Screen name="Login" component={LoginScreen} />
+    </AuthStack.Navigator>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#000',
-  },
-  homeContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-    backgroundColor: '#000',
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#fff',
-    textAlign: 'center',
-    marginBottom: 10,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: '#aaa',
-    textAlign: 'center',
-    marginBottom: 40,
-  },
-  buttonContainer: {
-    width: '100%',
-    gap: 20,
-  },
-  button: {
-    backgroundColor: '#1a73e8',
-    paddingVertical: 20,
-    paddingHorizontal: 30,
-    borderRadius: 12,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  registerButton: {
-    backgroundColor: '#34a853',
-  },
-  verifyButton: {
-    backgroundColor: '#ea4335',
-  },
-  buttonText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 5,
-  },
-  buttonSubtext: {
-    color: '#e8f0fe',
-    fontSize: 14,
-    textAlign: 'center',
-  },
-  infoContainer: {
-    marginTop: 40,
-    paddingHorizontal: 20,
-  },
-  infoText: {
-    color: '#888',
-    fontSize: 12,
-    textAlign: 'center',
-    lineHeight: 18,
-  },
-});
+function AppNavigator() {
+  const { activeUser } = useAuth();
+  const hasFace = activeUser?.faceRegistered;
+
+  return (
+    <AppStack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#000' } }}>
+      <AppStack.Screen name="Dashboard" component={DashboardScreen} />
+      {!hasFace && (
+        <AppStack.Screen name="FirstTimeRegister" component={FirstTimeRegisterScreen} />
+      )}
+      <AppStack.Screen name="MarkAttendance" component={AttendanceScreen} />
+      <AppStack.Screen name="ReRegister" component={ReRegisterScreen} />
+      <AppStack.Screen name="AttendanceHistory" component={AttendanceHistoryScreen} />
+    </AppStack.Navigator>
+  );
+}
+
+function RootNavigator() {
+  const { activeUser, isLoading } = useAuth();
+
+  if (isLoading) return null;
+
+  return (
+    <NavigationContainer>
+      {activeUser ? <AppNavigator /> : <AuthNavigator />}
+    </NavigationContainer>
+  );
+}
+
+export default function App() {
+  useEffect(() => {
+    (async () => {
+      try {
+        await secureStorage.initialize();
+        await getDatabase();
+        await securityService.isDeviceCompromised();
+
+        syncQueueService.startConnectivityMonitor(async () => {
+          console.log('Network restored, syncing pending records...');
+          const result = await syncQueueService.syncPendingRecords();
+          console.log(`Auto-sync: ${result.synced} synced, ${result.failed} failed`);
+        }, 60000);
+      } catch (error) {
+        console.error('Initialization error:', error);
+      }
+    })();
+
+    return () => {
+      syncQueueService.stopConnectivityMonitor();
+    };
+  }, []);
+
+  return (
+    <AuthProvider>
+      <StatusBar barStyle="light-content" backgroundColor="#000" />
+      <RootNavigator />
+    </AuthProvider>
+  );
+}

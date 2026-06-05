@@ -1,17 +1,15 @@
-// faceRecognitionService.ts - Centralized service for face recognition model and embeddings
 import * as tf from '@tensorflow/tfjs';
 import { decodeJpeg } from '@tensorflow/tfjs-react-native';
 import { Asset } from 'expo-asset';
 import * as ort from 'onnxruntime-react-native';
+import { applyPreprocessing, getLightingCondition } from '../faceRecognition/preprocessingPipeline';
 
 const modelPath = '../models/arcfaceresnet100-11-int8.onnx';
-//const modelPath = '../models/arcface.onnx';
 
 class FaceRecognitionService {
   private modelSession: ort.InferenceSession | null = null;
   private isModelLoading = false;
 
-  // ArcFace model constants (matching web implementation)
   private readonly INPUT_SIZE = 112;
 
   /**
@@ -111,63 +109,46 @@ class FaceRecognitionService {
       //console.log('base64', base64);
 
       // 1. Decode and Resize Image Tensor using TF.js
-      const imageBuffer = Buffer.from(base64, 'base64'); // Use Buffer for reliability
-      const imageTensor = tf.tidy(() => {
+      const imageBuffer = Buffer.from(base64, 'base64');
+      const { rgbPixels, width, height } = tf.tidy(() => {
         const decoded = decodeJpeg(imageBuffer);
-        // Resize to [112, 112] and ensure it's 3 channels (RGB)
-        return decoded
-          .resizeBilinear([this.INPUT_SIZE, this.INPUT_SIZE])
-          .toFloat()
-          .expandDims(0)
-          .slice([0, 0, 0, 0], [1, 112, 112, 3])
-          .squeeze();
+        const resized = decoded.resizeBilinear([this.INPUT_SIZE, this.INPUT_SIZE]);
+        const data = resized.dataSync();
+        return { rgbPixels: Array.from(data), width: this.INPUT_SIZE, height: this.INPUT_SIZE };
       });
 
-      // 2. Convert to Grayscale using TF.js's built-in method
-      // This is more accurate than manual conversion after rounding.
-      const grayTensor = tf.image.rgbToGrayscale(imageTensor as any);
-      const grayPixels = await grayTensor.data(); // This will be Float32Array of [0, 255]
-
-      // We need Uint8Array for histogram calculation
-      const gray = new Uint8Array(grayPixels.map((p: number) => Math.round(p)));
-
-      // The following histogram equalization logic remains the same
-      // as it operates on a Uint8Array [0, 255], which we've now correctly derived.
-
-      // 3. Calculate histogram
-      const hist = new Uint32Array(256).fill(0);
-      for (let i = 0; i < gray.length; i++) {
-        hist[gray[i]]++;
+      const gray = new Uint8Array(width * height);
+      for (let i = 0; i < width * height; i++) {
+        const r = rgbPixels[i * 3];
+        const g = rgbPixels[i * 3 + 1];
+        const b = rgbPixels[i * 3 + 2];
+        gray[i] = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
       }
 
-      // 4. Calculate CDF (cumulative distribution function)
-      const cdf = new Uint32Array(256).fill(0);
-      cdf[0] = hist[0];
-      for (let i = 1; i < 256; i++) {
-        cdf[i] = cdf[i - 1] + hist[i];
+      const lightingCondition = getLightingCondition(gray);
+      console.log(`Lighting condition: ${lightingCondition}`);
+
+      const useAdaptivePreprocessing = lightingCondition !== 'normal';
+
+      const preprocessed = applyPreprocessing(
+        gray,
+        this.INPUT_SIZE,
+        this.INPUT_SIZE,
+        { histogramEqualization: true, brightnessNormalization: true, contrastEnhancement: useAdaptivePreprocessing }
+      );
+
+      const equalizedGray = new Uint8Array(preprocessed.length);
+      for (let i = 0; i < preprocessed.length; i++) {
+        equalizedGray[i] = Math.round(Math.max(0, Math.min(255, preprocessed[i])));
       }
 
-      // 5. Normalize CDF
-      const cdfMin = cdf.find(v => v > 0) || 0;
-      const totalPixels = gray.length;
-      const cdfNormalized = new Uint8Array(256);
-      for (let i = 0; i < 256; i++) {
-        cdfNormalized[i] = Math.round(((cdf[i] - cdfMin) / (totalPixels - cdfMin)) * 255);
-      }
-
-      // 6. Apply histogram equalization
-      const equalizedGray = new Uint8Array(this.INPUT_SIZE * this.INPUT_SIZE);
-      for (let i = 0; i < gray.length; i++) {
-        equalizedGray[i] = cdfNormalized[gray[i]];
-      }
-
-      // 7. Prepare input tensor in NCHW format (channel first) for ArcFace
       const input = new Float32Array(3 * this.INPUT_SIZE * this.INPUT_SIZE);
       for (let i = 0; i < this.INPUT_SIZE * this.INPUT_SIZE; i++) {
-        const val = equalizedGray[i];
-        input[i] = val; // R channel
-        input[i + this.INPUT_SIZE * this.INPUT_SIZE] = val; // G channel
-        input[i + 2 * this.INPUT_SIZE * this.INPUT_SIZE] = val; // B channel
+        const val = (rgbPixels[i * 3] + rgbPixels[i * 3 + 1] + rgbPixels[i * 3 + 2]) / 3;
+        const adjusted = val * 0.5 + equalizedGray[i] * 0.5;
+        input[i] = adjusted;
+        input[i + this.INPUT_SIZE * this.INPUT_SIZE] = adjusted;
+        input[i + 2 * this.INPUT_SIZE * this.INPUT_SIZE] = adjusted;
       }
 
       // console.log('input', input);
@@ -180,7 +161,7 @@ class FaceRecognitionService {
       const raw = output[session.outputNames[0]].data as Float32Array;
 
       // Clean up tensors
-      tf.dispose([imageTensor, grayTensor]);
+      tf.dispose([]);
       // ONNX Tensors don't have a dispose method in onnxruntime-react-native's public API
 
       // L2 Normalize the output embedding
@@ -212,7 +193,7 @@ class FaceRecognitionService {
     const similarity = this.calculateCosineSimilarity(embedding1, embedding2);
     const distance = 1 - similarity;
 
-    const threshold = 0.6;
+    const threshold = 0.45;
     const isMatch = similarity >= threshold;
     const confidence = Math.round(similarity * 100);
 

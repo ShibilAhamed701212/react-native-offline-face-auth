@@ -1,0 +1,26 @@
+version = 0.1
+
+[default]
+[default.global]
+[default.global.parameters]
+stack_name = "nhai-attendance-backend"
+
+[development]
+[development.deploy]
+[development.deploy.parameters]
+stack_name = "nhai-attendance-backend-dev"
+s3_prefix = "nhai-attendance-backend-dev"
+region = "ap-south-1"
+confirm_changeset = false
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = "Environment=development"
+
+[production]
+[production.deploy]
+[production.deploy.parameters]
+stack_name = "nhai-attendance-backend"
+s3_prefix = "nhai-attendance-backend"
+region = "ap-south-1"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = "Environment=production"

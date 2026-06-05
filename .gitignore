@@ -1,0 +1,19 @@
+node_modules/
+.expo/
+dist/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+web-build/
+
+# expo-cli / eas
+.env.local
+.env.production
+
+# macOS
+.DS_Store
+
+# Android native — committed for EAS Build (not managed by Prebuild)

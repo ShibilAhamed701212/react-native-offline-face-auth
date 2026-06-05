@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "Face Recognition App",
-    "description": "A complete React Native facial recognition application using ArcFace ONNX model. Features include face registration, real-time verification, and secure local storage of biometric data.",
-    "slug": "react-native-facial-recognition",
+    "name": "NHAI Face Attendance",
+    "description": "NHAI Offline Facial Recognition & Liveness Attendance System. Fully offline face enrollment, anti-spoofing liveness detection, GPS attendance tracking, and smart sync.",
+    "slug": "nhai-facial-attendance",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./src/assets/images/icon.png",
@@ -11,14 +11,19 @@
     "scheme": "face-recognition",
     "githubUrl": "https://github.com/maateusx/react-native-facial-recognition",
     "primaryColor": "#318ede",
-    "privacy": "public",
-    "platforms": ["ios", "android", "web"],
+    "platforms": [
+      "ios",
+      "android",
+      "web"
+    ],
     "splash": {
       "image": "./src/assets/images/splash-icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#318ede"
     },
-    "assetBundlePatterns": ["assets/**/*"],
+    "assetBundlePatterns": [
+      "assets/**/*"
+    ],
     "ios": {
       "supportsTablet": false,
       "requireFullScreen": true,
@@ -26,37 +31,29 @@
         "usesNonExemptEncryption": false
       },
       "infoPlist": {
-        "NSCameraUsageDescription": "This app uses the camera for facial recognition and registration. Your biometric data stays securely on your device.",
+        "NSCameraUsageDescription": "$(PRODUCT_NAME) needs access to your camera for facial recognition features.",
         "NSFaceIDUsageDescription": "Enable Face ID for enhanced security when accessing the app.",
-        "UIRequiredDeviceCapabilities": ["front-facing-camera"],
+        "UIRequiredDeviceCapabilities": [
+          "front-facing-camera"
+        ],
         "ITSAppUsesNonExemptEncryption": false
       },
       "bundleIdentifier": "com.maateusx.facerecognition"
     },
     "android": {
-      "compileSdkVersion": 34,
-      "targetSdkVersion": 34,
-      "minSdkVersion": 24,
       "adaptiveIcon": {
         "foregroundImage": "./src/assets/images/splash-icon.png",
         "backgroundColor": "#318ede"
       },
       "allowBackup": false,
-      "permissions": ["android.permission.CAMERA", "android.permission.RECORD_AUDIO"],
+      "minSdkVersion": 26,
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION"
+      ],
       "package": "com.maateusx.facerecognition"
-    },
-    "web": {
-      "favicon": "./src/assets/images/favicon.png",
-      "name": "Face Recognition App",
-      "shortName": "FaceRecognition",
-      "lang": "en",
-      "scope": "/",
-      "themeColor": "#318ede",
-      "description": "React Native facial recognition app with ArcFace ONNX model",
-      "dir": "auto",
-      "display": "standalone",
-      "orientation": "portrait",
-      "startUrl": "/"
     },
     "plugins": [
       [
@@ -71,6 +68,19 @@
         {
           "bundleCustomONNXModel": true
         }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "$(PRODUCT_NAME) needs access to your location for attendance tracking.",
+          "locationWhenInUsePermission": "$(PRODUCT_NAME) needs access to your location for attendance tracking."
+        }
+      ],
+      [
+        "expo-secure-store",
+        {
+          "faceIDPermission": "Enable Face ID to secure your biometric data."
+        }
       ]
     ],
     "experiments": {
@@ -78,9 +88,9 @@
     },
     "extra": {
       "eas": {
-        "projectId": "your-eas-project-id"
+        "projectId": "9f43938f-a8d5-453e-bd28-643bcf45c6f7"
       }
     },
-    "owner": "maateusx"
+    "owner": "shibilahamed"
   }
 }

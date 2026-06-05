@@ -126,6 +126,7 @@ export default function FaceRegistrationScreen({ onBack }: FaceRegistrationScree
       try {
         const faceData = {
           id: faceStorage.generateFaceId(),
+          userId: '',
           name: userName,
           embedding: embedding,
           photoPath: capturedPhoto?.path,

@@ -1,0 +1,574 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: NHAI Attendance System - Serverless Backend
+
+Globals:
+  Function:
+    Timeout: 29
+    MemorySize: 256
+    Runtime: nodejs20.x
+    Architectures:
+      - arm64
+    Environment:
+      Variables:
+        TABLE_NAME: !Ref AttendanceTable
+        JWT_SECRET: !Ref JWTSecret
+        TTL_DAYS: '365'
+    Tracing: Active
+
+Parameters:
+  JWTSecret:
+    Type: String
+    Description: Secret key for JWT token signing
+    NoEcho: true
+  Environment:
+    Type: String
+    Default: production
+    AllowedValues:
+      - development
+      - staging
+      - production
+
+Resources:
+  AttendanceTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: NHAIAttendance
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+        - AttributeName: gsipk
+          AttributeType: S
+        - AttributeName: gsisk
+          AttributeType: S
+        - AttributeName: userId
+          AttributeType: S
+        - AttributeName: timestamp
+          AttributeType: N
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: UserIdIndex
+          KeySchema:
+            - AttributeName: userId
+              KeyType: HASH
+            - AttributeName: timestamp
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: TimestampIndex
+          KeySchema:
+            - AttributeName: gsipk
+              KeyType: HASH
+            - AttributeName: timestamp
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+
+  AttendanceApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub nhai-attendance-api-${Environment}
+      StageName: !Ref Environment
+      Description: NHAI Attendance System REST API
+      EndpointConfiguration:
+        Type: REGIONAL
+      Cors:
+        AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+        AllowHeaders: "'Content-Type,Authorization,X-API-Key'"
+        AllowOrigin: "'*'"
+        AllowCredentials: "'true'"
+      Auth:
+        DefaultAuthorizer: NHAILambdaAuthorizer
+        Authorizers:
+          NHAILambdaAuthorizer:
+            FunctionArn: !GetAtt TokenAuthorizer.Arn
+            Type: REQUEST
+            Identity:
+              Headers:
+                - Authorization
+                - x-api-key
+        AddDefaultAuthorizerToCorsPreflight: false
+      MinimumCompressionSize: 1024
+
+  AttendanceRecordModel:
+    Type: AWS::ApiGateway::Model
+    Properties:
+      RestApiId: !Ref AttendanceApi
+      ContentType: application/json
+      Name: AttendanceRecord
+      Schema:
+        type: object
+        required:
+          - userId
+          - userName
+          - timestamp
+          - livenessPassed
+          - confidence
+        properties:
+          id:
+            type: string
+          userId:
+            type: string
+          userName:
+            type: string
+          timestamp:
+            type: integer
+          latitude:
+            type: number
+            nullable: true
+          longitude:
+            type: number
+            nullable: true
+          livenessPassed:
+            type: boolean
+          livenessChallenge:
+            type: string
+          confidence:
+            type: number
+
+  BulkSyncRequestModel:
+    Type: AWS::ApiGateway::Model
+    Properties:
+      RestApiId: !Ref AttendanceApi
+      ContentType: application/json
+      Name: BulkSyncRequest
+      Schema:
+        type: object
+        required:
+          - records
+        properties:
+          records:
+            type: array
+            maxItems: 500
+            items:
+              $ref: !Sub 'https://apigateway.amazonaws.com/restapis/${AttendanceApi}/models/AttendanceRecord'
+
+  EmployeeRegistrationModel:
+    Type: AWS::ApiGateway::Model
+    Properties:
+      RestApiId: !Ref AttendanceApi
+      ContentType: application/json
+      Name: EmployeeRegistration
+      Schema:
+        type: object
+        required:
+          - name
+          - designation
+          - department
+        properties:
+          id:
+            type: string
+          name:
+            type: string
+          designation:
+            type: string
+          department:
+            type: string
+          phone:
+            type: string
+          email:
+            type: string
+            format: email
+
+  AttendanceRequestValidator:
+    Type: AWS::ApiGateway::RequestValidator
+    Properties:
+      RestApiId: !Ref AttendanceApi
+      Name: ValidateBody
+      ValidateRequestBody: true
+      ValidateRequestParameters: false
+
+  TokenAuthorizer:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ./lambdas
+      Handler: handlers/auth.lambdaAuthorizer
+      Environment:
+        Variables:
+          JWT_SECRET: !Ref JWTSecret
+
+  PostAttendanceFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub nhai-post-attendance-${Environment}
+      CodeUri: ./lambdas
+      Handler: handlers/attendance.postAttendance
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref AttendanceApi
+            Path: /attendance
+            Method: POST
+            RequestModel:
+              ModelName: AttendanceRecord
+              Required: true
+            RequestValidator: !Ref AttendanceRequestValidator
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AttendanceTable
+
+  BulkSyncFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub nhai-bulk-sync-${Environment}
+      CodeUri: ./lambdas
+      Handler: handlers/attendance.bulkSyncAttendance
+      MemorySize: 512
+      Timeout: 60
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref AttendanceApi
+            Path: /attendance/bulk-sync
+            Method: POST
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AttendanceTable
+
+  RegisterEmployeeFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub nhai-register-employee-${Environment}
+      CodeUri: ./lambdas
+      Handler: handlers/employee.registerEmployee
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref AttendanceApi
+            Path: /employee/register
+            Method: POST
+            RequestModel:
+              ModelName: EmployeeRegistration
+              Required: true
+            RequestValidator: !Ref AttendanceRequestValidator
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AttendanceTable
+
+  GetEmployeeFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub nhai-get-employee-${Environment}
+      CodeUri: ./lambdas
+      Handler: handlers/employee.getEmployee
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref AttendanceApi
+            Path: /employee/{id}
+            Method: GET
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref AttendanceTable
+
+  UpdateEmployeeFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub nhai-update-employee-${Environment}
+      CodeUri: ./lambdas
+      Handler: handlers/employee.updateEmployee
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref AttendanceApi
+            Path: /employee/{id}
+            Method: PUT
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AttendanceTable
+
+  DeleteEmployeeFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub nhai-delete-employee-${Environment}
+      CodeUri: ./lambdas
+      Handler: handlers/employee.deleteEmployee
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref AttendanceApi
+            Path: /employee/{id}
+            Method: DELETE
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AttendanceTable
+
+  GetSyncStatusFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub nhai-sync-status-${Environment}
+      CodeUri: ./lambdas
+      Handler: handlers/sync-status.getSyncStatus
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref AttendanceApi
+            Path: /sync-status/{userId}
+            Method: GET
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref AttendanceTable
+
+  GetPresignedUploadUrlFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub nhai-presigned-upload-${Environment}
+      CodeUri: ./lambdas
+      Handler: handlers/audit.getPresignedUploadUrl
+      MemorySize: 256
+      Timeout: 10
+      Environment:
+        Variables:
+          AUDIT_BUCKET_NAME: !Ref AuditBucket
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref AttendanceApi
+            Path: /audit/presigned-upload
+            Method: POST
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref AuditBucket
+
+  HealthCheckFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub nhai-health-check-${Environment}
+      CodeUri: ./lambdas
+      Handler: handlers/health.healthCheck
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref AttendanceApi
+            Path: /health
+            Method: GET
+          Auth:
+            Authorizer: NONE
+
+  LoginFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub nhai-login-${Environment}
+      CodeUri: ./lambdas
+      Handler: handlers/login.loginHandler
+      MemorySize: 256
+      Timeout: 10
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref AttendanceApi
+            Path: /auth/login
+            Method: POST
+          Auth:
+            Authorizer: NONE
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref AttendanceTable
+
+  RegisterFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub nhai-register-${Environment}
+      CodeUri: ./lambdas
+      Handler: handlers/login.registerHandler
+      MemorySize: 256
+      Timeout: 10
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref AttendanceApi
+            Path: /auth/register
+            Method: POST
+          Auth:
+            Authorizer: NONE
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AttendanceTable
+
+  AttendanceDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub nhai-attendance-${Environment}
+      DashboardBody: !Sub
+        - |-
+          {
+            "widgets": [
+              {
+                "type": "metric",
+                "x": 0,
+                "y": 0,
+                "width": 12,
+                "height": 6,
+                "properties": {
+                  "metrics": [
+                    [ "AWS/Lambda", "Invocations", "FunctionName", "${PostAttendanceFunction}", { "stat": "Sum" } ],
+                    [ ".", "Errors", ".", ".", { "stat": "Sum" } ],
+                    [ ".", "Throttles", ".", ".", { "stat": "Sum" } ]
+                  ],
+                  "period": 300,
+                  "stat": "Sum",
+                  "region": "${AWS::Region}",
+                  "title": "Lambda - Post Attendance"
+                }
+              },
+              {
+                "type": "metric",
+                "x": 12,
+                "y": 0,
+                "width": 12,
+                "height": 6,
+                "properties": {
+                  "metrics": [
+                    [ "AWS/Lambda", "Duration", "FunctionName", "${BulkSyncFunction}", { "stat": "Average" } ],
+                    [ ".", "Invocations", ".", ".", { "stat": "Sum" } ],
+                    [ ".", "Errors", ".", ".", { "stat": "Sum" } ]
+                  ],
+                  "period": 300,
+                  "stat": "Average",
+                  "region": "${AWS::Region}",
+                  "title": "Lambda - Bulk Sync"
+                }
+              },
+              {
+                "type": "metric",
+                "x": 0,
+                "y": 6,
+                "width": 12,
+                "height": 6,
+                "properties": {
+                  "metrics": [
+                    [ "AWS/DynamoDB", "ConsumedReadCapacityUnits", "TableName", "${AttendanceTable}", { "stat": "Sum" } ],
+                    [ ".", "ConsumedWriteCapacityUnits", ".", ".", { "stat": "Sum" } ],
+                    [ ".", "SuccessfulRequestLatency", ".", ".", { "stat": "Average" } ]
+                  ],
+                  "period": 300,
+                  "stat": "Sum",
+                  "region": "${AWS::Region}",
+                  "title": "DynamoDB - NHAIAttendance"
+                }
+              },
+              {
+                "type": "metric",
+                "x": 12,
+                "y": 6,
+                "width": 12,
+                "height": 6,
+                "properties": {
+                  "metrics": [
+                    [ "AWS/ApiGateway", "Count", "ApiName", "${AttendanceApi}", { "stat": "Sum" } ],
+                    [ ".", "4XXError", ".", ".", { "stat": "Sum" } ],
+                    [ ".", "5XXError", ".", ".", { "stat": "Sum" } ],
+                    [ ".", "Latency", ".", ".", { "stat": "Average" } ]
+                  ],
+                  "period": 300,
+                  "stat": "Sum",
+                  "region": "${AWS::Region}",
+                  "title": "API Gateway"
+                }
+              },
+              {
+                "type": "log",
+                "x": 0,
+                "y": 12,
+                "width": 24,
+                "height": 6,
+                "properties": {
+                  "query": "SOURCE '/aws/lambda/nhai-post-attendance-${Environment}' | fields @timestamp, @message | sort @timestamp desc | limit 20",
+                  "region": "${AWS::Region}",
+                  "title": "Recent Logs - Post Attendance"
+                }
+              }
+            ]
+          }
+        - { PostAttendanceFunction: !Ref PostAttendanceFunction, BulkSyncFunction: !Ref BulkSyncFunction, AttendanceTable: !Ref AttendanceTable, AttendanceApi: !Ref AttendanceApi, Environment: !Ref Environment }
+
+  ## Cognito User Pool
+  NHAIUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub nhai-user-pool-${Environment}
+      AutoVerifiedAttributes:
+        - email
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireUppercase: true
+          RequireLowercase: true
+          RequireNumbers: true
+      Schema:
+        - Name: email
+          AttributeDataType: String
+          Required: true
+        - Name: name
+          AttributeDataType: String
+          Required: true
+
+  NHAIUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub nhai-app-client-${Environment}
+      UserPoolId: !Ref NHAIUserPool
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+
+  ## Audit S3 Bucket (optional)
+  AuditBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub nhai-audit-images-${Environment}-${AWS::AccountId}
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireAfter90Days
+            Status: Enabled
+            ExpirationInDays: 90
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+Outputs:
+  ApiEndpoint:
+    Description: API Gateway endpoint URL
+    Value: !Sub https://${AttendanceApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}
+  TableName:
+    Description: DynamoDB table name
+    Value: !Ref AttendanceTable
+  UserPoolId:
+    Description: Cognito User Pool ID
+    Value: !Ref NHAIUserPool
+  UserPoolClientId:
+    Description: Cognito User Pool Client ID
+    Value: !Ref NHAIUserPoolClient
+  AuditBucketName:
+    Description: S3 bucket for audit images
+    Value: !Ref AuditBucket
